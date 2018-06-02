@@ -62,9 +62,9 @@ def load_data(label_file):
             for i in range(int(row[2])-1,  int(row[3])):
                 y[i] = class_map[row[0]]
     
-    y_act = [k for k,g in itertools.groupby(list(y))]
+    #y_act = [k for k,g in itertools.groupby(list(y))]
     
-    return x_rgb, x_flow, y, y_act    
+    return x_rgb, x_flow, y
 
       
 class Net(nn.Module):
@@ -126,10 +126,12 @@ for epoch in range(0,num_epochs):
                 sample_no = 0
                 for s in sample:
                     data = load_data(s)
-                    inps.append([data[0].shape[0], torch.tensor(data[0]), torch.tensor(data[1]), list(data[2]), data[3]])
+                    inps.append([data[0].shape[0], torch.tensor(data[0]), torch.tensor(data[1]), list(data[2])])
+
                 
                 inps.sort(key=lambda x: x[0])
                 inps.reverse()
+
                 
                 rgb_inputs = []
                 flow_inputs = []
