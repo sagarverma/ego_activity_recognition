@@ -16,6 +16,9 @@ import torch.nn.functional as F
 from config import GTEA as DATA
 from utils.folder import BiModeSequencePreloader, BiModeNpySequencePreloader
 from rnn_modules import RNN
+import torch.backends.cudnn as cudnn
+
+cudnn.enabled = False
 
 DEVICE = 1
 
