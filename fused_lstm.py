@@ -95,13 +95,13 @@ class LSTMNet(nn.Module):
         #self.rgb_rnn = nn.LSTM(input_size, hidden_size, 1, batch_first=True)
         #self.flow_rnn = nn.LSTM(input_size, hidden_size, 1, batch_first=True)
         self.rgb_rnn = RNN(input_size, hidden_size, nonlinearity='indrelu', hidden_max_abs=recurrent_max, batch_first=True, bidirectional=bidirectional)
-        self.flow_rnn = RNN(input_size, hidden_size, nonlinearity='indrelu', hidden_max_abs=recurrent_max, batch_first=True, bidirectional=bidirectional)
+        #self.flow_rnn = RNN(input_size, hidden_size, nonlinearity='indrelu', hidden_max_abs=recurrent_max, batch_first=True, bidirectional=bidirectional)
         self.w_att = nn.Linear(hidden_size, 1)
         self.out = nn.Linear(hidden_size, num_classes)
 
     def forward(self, rgb_inp, flow_inp):
         x_rgb = self.rgb_rnn(rgb_inp)[0]
-        x_flow = self.flow_rnn(flow_inp)[0]
+        x_flow = self.rgb_rnn(flow_inp)[0]
 
 
         #fused_outputs = torch.cat([x_rgb, x_flow], dim=2)
