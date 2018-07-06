@@ -366,7 +366,7 @@ class NpyPairPreloader(data.Dataset):
 
     def __init__(self, root, csv_file):
 
-        r = csv.reader(open(root + csv_file, 'r'), delimiter=',')
+        r = csv.reader(open(csv_file, 'r'), delimiter=',')
 
         pair_list = []
         for row in r:
