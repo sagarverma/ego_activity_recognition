@@ -60,6 +60,14 @@ def make_sequence_dataset(dir, sequences_list):
 
     return sequences
 
+def make_pair_dataset(dir, pairs_list):
+    pairs = []
+
+    for pair in pairs_list:
+        pairs.append([dir + pair[0], dir + pair[1], int(pair[-1])])
+
+    return pairs
+
 def make_bimode_sequence_dataset(rgb_dir, flow_dir, sequences_list):
     sequences = []
 
@@ -89,6 +97,12 @@ def npy_seq_loader(seq):
     out = np.asarray(out)
 
     return out
+
+def npy_pair_loader(path1, path2):
+    xt1 = np.load(path1)
+    xt2 = np.load(path2)
+
+    return xt1, xt2
 
 def rgb_sequence_loader(paths, mean, std, inp_size, rand_crop_size, resize_size):
     irand = random.randint(0, inp_size[0] - rand_crop_size[0])
@@ -347,3 +361,34 @@ class BiModeNpySequencePreloader(data.Dataset):
 
     def __len__(self):
         return len(self.bimode_sequences)
+
+class NpyPairPreloader(data.Dataset):
+
+    def __init__(self, root, csv_file):
+
+        r = csv.reader(open(root + csv_file, 'r'), delimiter=',')
+
+        pair_list = []
+        for row in r:
+            pair_list.append([row[0], row[1], int(row[-1])])
+
+        pairs = make_pair_dataset(root, pair_list)
+
+        self.root = root
+        self.pairs = pairs
+        self.loader = npy_pair_loader
+
+    def __getitem__(self, index):
+        """
+        Args:
+            index (int): Index
+        Returns:
+            tuple: (image, target) where target is class_index of the target class.
+        """
+        path1, path2, target = self.pairs[index]
+        xt1, xt2 = self.npy_pair_loader(path1, path2)
+
+        return xt1, xt2, target
+
+    def __len__(self):
+        return len(self.pairs)

@@ -1,179 +1,153 @@
+from __future__ import print_function, division
+import shutil
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.optim import lr_scheduler
 from torch.autograd import Variable
-import torch.utils.data as data
 import torch.nn.functional as F
-
-from torch.nn.utils.rnn import pad_sequence, pack_sequence, pack_padded_sequence, pad_packed_sequence
-
+import numpy as np
 import torchvision
 from torchvision import datasets, models, transforms
-
 import matplotlib.pyplot as plt
-import time, os, csv, shutil, random, itertools
-import numpy as np
+import time
+import os
+from config import GTEA as DATA
+from utils.folder import NpyPairPreloader
 
-from rnn_modules import RNN
+use_gpu = torch.cuda.is_available()
+DEVICE = 1
 
-import torch.backends.cudnn as cudnn
+#Data statistics
+num_classes = DATA.rgb_sim['num_classes']
+class_map = DATA.rgb_sim['class_map']
 
-import math
+#Training parameters
+lr = DATA.rgb_sim['lr']
+momentum = DATA.rgb_sim['momentum']
+step_size = DATA.rgb_sim['step_size']
+gamma = DATA.rgb_sim['gamma']
+num_epochs = DATA.rgb_sim['num_epochs']
+batch_size = DATA.rgb_sim['batch_size']
+data_transforms = DATA.rgb_sim['data_transforms']
+features_2048x10x10_dir = DATA.rgb_sim['features_2048x10x10_dir']
+data_dir = DATA.rgb_sim['data_dir']
+weights_dir = DATA.rgb_sim['weights_dir']
+train_csv = DATA.rgb_sim['train_csv']
+test_csv = DATA.rgb_sim['test_csv']
 
-from sklearn.metrics import accuracy_score
+class SimNet(nn.Module):
+    """
+    Model definition.
+    """
+    def __init__(self, original_model):
+        super(SimNet, self).__init__()
+        self.fc = nn.Linear(2048, 2)
 
-cudnn.enabled = False
+    def forward(self, xt0, xt1):
+        x = F.conv2d(xt0, xt1)
+        x = self.fc(x)
+        return x
 
-lr = 0.01
-momentum = 0.9
-gamma = 1
-num_epochs = 50
-batch_size = 21
+def train_model(model, criterion, optimizer, scheduler, num_epochs=2000):
+    """
+        Training model with given criterion, optimizer for num_epochs.
+    """
+    since = time.time()
 
-num_classes = 11
+    best_model_wts = model.state_dict()
+    best_acc = 0.0
 
-batch_norm = False
-sequence_length = 2000
-recurrent_max = pow(2, 1/sequence_length)
+    train_loss = []
+    train_acc = []
+    test_acc = []
+    test_loss = []
 
-bidirectional = True
+    for epoch in range(num_epochs):
+        print('Epoch {}/{}'.format(epoch, num_epochs - 1))
+        print('-' * 10)
 
-class_map = {'x':0, 'bg':0, 'fold':1, 'pour':2, 'put':3, 'scoop':4, 'shake':5, 'spread':6, 'stir':7, 'take':8, 'open': 9, 'close':10}
+        for phase in ['train', 'test']:
+            if phase == 'train':
+                scheduler.step()
+                model.train(True)
+            else:
+                model.train(False)
 
-label_dir = '../../dataset/gtea_labels_cleaned//'
-rgb_feature_dir = '../../dataset/rgb_2048_features/'
+            running_loss = 0.0
+            running_corrects = 0
 
-label_files = os.listdir(label_dir)
-
-train_split = [label_file for label_file in label_files if 'S4' not in label_file]
-test_split = [label_file for label_file in label_files if 'S4' in label_file]
-
-
-def load_data(label_file):
-    x_rgb = np.load(rgb_feature_dir + label_file[:-4] + '.npy')
-    y = np.zeros((x_rgb.shape[0]))
-
-    r = csv.reader(open(label_dir + label_file, 'r'), delimiter=' ')
-    for row in r:
-        if len(row) > 1:
-            for i in range(int(row[2])-1,  int(row[3])):
-                y[i] = class_map[row[0]]
-
-    return x_rgb, y
-
-
-class Net(nn.Module):
-    def __init__(self, input_size, hidden_size, n_layer=1):
-        super(Net, self).__init__()
-        self.indrnn = RNN(input_size, hidden_size, nonlinearity='indrelu', hidden_max_abs=recurrent_max, batch_first=False, bidirectional=bidirectional)
-
-        if bidirectional:
-            self.w_att = nn.Linear(hidden_size + hidden_size, 1)
-            self.out = nn.Linear(hidden_size + hidden_size, num_classes)
-        else:
-            self.w_att = nn.Linear(hidden_size, 1)
-            self.out = nn.Linear(hidden_size, num_classes)
-
-    def forward(self, rgb_inputs, flow_inputs, lengths):
-        rgb_inputs = pad_sequence(rgb_inputs, batch_first=False)
-        rgb_inputs = pack_padded_sequence(rgb_inputs, lengths, batch_first=False)
-        rgb_inputs = rgb_inputs.cuda()
-        rgb_outputs, rgb_hiddens = self.indrnn(rgb_inputs)
-        rgb_outputs, _ = pad_packed_sequence(rgb_outputs, batch_first=False)
-
-        flow_inputs = pad_sequence(flow_inputs, batch_first=False)
-        flow_inputs = pack_padded_sequence(flow_inputs, lengths, batch_first=False)
-        flow_inputs = flow_inputs.cuda()
-        flow_outputs, flow_hiddens = self.indrnn(flow_inputs)
-        flow_outputs, _ = pad_packed_sequence(flow_outputs, batch_first=False)
-
-        alpha = F.sigmoid(self.w_att(rgb_outputs) + self.w_att(flow_outputs))
-        fused_outputs = F.mul(alpha, rgb_outputs) + F.mul((1-alpha), flow_outputs)
-
-        outputs = self.out(fused_outputs)
-        #outputs = outputs.view(-1, num_classes)
-        return outputs
-
-model = Net(2048, 512)
-model = model.cuda()
-criterian = nn.CrossEntropyLoss(ignore_index=num_classes)
-optimizer = optim.SGD(model.parameters(), lr=lr, momentum=momentum)
-
-
-for epoch in range(0,num_epochs):
-    random.shuffle(train_split)
-
-    for phase in ['train', 'test']:
-        if phase == 'train':
-            model.train(True)
-        else:
-            model.train(False)
-
-        running_loss = 0.0
-        running_acc = 0
-
-        if phase == 'train':
-            for batch_no in range(len(train_split)//batch_size):
-                sample = train_split[batch_size * batch_no : batch_size * (batch_no + 1)]
-
-                inps = []
-
-                sample_no = 0
-                for s in sample:
-                    data = load_data(s)
-                    inps.append([data[0].shape[0], torch.tensor(data[0]), torch.tensor(data[1]), list(data[2])])
-
-
-                inps.sort(key=lambda x: x[0])
-                inps.reverse()
-
-
-                rgb_inputs = []
-                flow_inputs = []
-                output_sizes = []
-                for inp in inps:
-                    rgb_inputs.append(inp[1])
-                    flow_inputs.append(inp[2])
-                    output_sizes.append(inp[1].size()[0])
-
-                labels = []
-                label_sizes = []
-                for inp in inps:
-                    labels.append(torch.IntTensor(inp[3]))
-                    label_sizes.append(len(inp[3]))
+            for data in dataloaders[phase]:
+                xt1s, xt2s, labels = data
+                if use_gpu:
+                    xt1s = Variable(xt1s.cuda(DEVICE))
+                    xt2s = Variable(xt2s.cuda(DEVICE))
+                    labels = Variable(labels.cuda(DEVICE))
+                else:
+                    xt1s = Variable(xt1s)
+                    xt2s = Variable(xt2s)
+                    labels = Variable(labels)
 
                 optimizer.zero_grad()
+                outputs = model(inputs)
+                _, preds = torch.max(outputs.data, 1)
 
-                outputs = model(rgb_inputs, flow_inputs, output_sizes)
+                loss = criterion(outputs, labels)
 
-                labels = pad_sequence(labels, batch_first=False, padding_value=num_classes)
-                labels = labels.cuda()
-
-                output_sizes = Variable(torch.IntTensor(output_sizes))
-                #label_sizes = Variable(torch.IntTensor(label_sizes))
-
-                loss = criterian(outputs.view(-1, num_classes), labels.view(-1).type(torch.cuda.LongTensor))
-
-                loss.backward()
-                optimizer.step()
+                if phase == 'train':
+                    loss.backward()
+                    optimizer.step()
 
                 running_loss += loss.item()
-                acc = 0
+                running_corrects += torch.sum(preds == labels.data).item()
 
-                _, predictions = torch.max(outputs.data, 2)
-                predictions = predictions.data.cpu().numpy()
+            epoch_loss = running_loss / dataset_sizes[phase]
+            epoch_acc = running_corrects / dataset_sizes[phase]
 
-                labels = labels.data.cpu().numpy()
+            if phase=='train':
+                train_loss.append(epoch_loss)
+                train_acc.append(epoch_acc)
+                print ('##############################################################')
+                print ("{} loss = {}, acc = {},".format(phase, epoch_loss, epoch_acc))
+            else:
+                test_loss.append(epoch_loss)
+                test_acc.append(epoch_acc)
+                print (" {} loss = {}, acc = {},".format(phase, epoch_loss, epoch_acc))
+                print ('##############################################################')
 
-                predictions = np.transpose(predictions, (1,0))
-                labels = np.transpose(labels, (1,0))
+
+            if phase == 'test' and epoch_acc > best_acc:
+                best_acc = epoch_acc
+                torch.save(model, weights_dir + 'weights_'+ file_name + '_lr_' + str(lr) + '_momentum_' + str(momentum) + '_step_size_' + \
+                        str(step_size) + '_gamma_' + str(gamma) + '_num_classes_' + str(num_classes) + \
+                        '_batch_size_' + str(batch_size) + '.pt')
 
 
-                for i in range(labels.shape[0]):
-                    acc += accuracy_score(labels[i][:label_sizes[i]], predictions[i][:label_sizes[i]], normalize=True)
+    time_elapsed = time.time() - since
+    print('Training complete in {:.0f}m {:.0f}s'.format(
+        time_elapsed // 60, time_elapsed % 60))
+    print('Best test Acc: {:4f}'.format(best_acc))
 
-                running_acc += acc / labels.shape[0]
 
+#Dataload and generator initialization
+pair_datasets = {'train': NpyPairPreloader(data_dir + features_2048x10x10_dir, data_dir + train_csv, class_map),
+                    'test': NpyPairPreloader(data_dir + features_2048x10x10_dir, data_dir + test_csv, class_map)}
 
-            print (running_loss / int(math.ceil(len(train_split)/batch_size)), running_acc / int(math.ceil(len(train_split)/ batch_size)))
+dataloaders = {x: torch.utils.data.DataLoader(pair_datasets[x], batch_size=batch_size, shuffle=True, num_workers=4) for x in ['train', 'test']}
+dataset_sizes = {x: len(pair_datasets[x]) for x in ['train', 'test']}
+class_names = pair_datasets['train'].classes
+file_name = __file__.split('/')[-1].split('.')[0]
+
+#Create model and initialize/freeze weights
+model = SimNet()
+
+if use_gpu:
+    model = model.cuda(DEVICE)
+
+#Initialize optimizer and loss function
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.SGD(model.fc.parameters(), lr=lr, momentum=momentum)
+exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)
+
+#Train model
+train_model(model, criterion, optimizer, exp_lr_scheduler, num_epochs=num_epochs)
