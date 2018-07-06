@@ -129,12 +129,11 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=2000):
 
 
 #Dataload and generator initialization
-pair_datasets = {'train': NpyPairPreloader(data_dir + features_2048x10x10_dir, data_dir + train_csv, class_map),
-                    'test': NpyPairPreloader(data_dir + features_2048x10x10_dir, data_dir + test_csv, class_map)}
+pair_datasets = {'train': NpyPairPreloader(data_dir + features_2048x10x10_dir, data_dir + train_csv),
+                    'test': NpyPairPreloader(data_dir + features_2048x10x10_dir, data_dir + test_csv)}
 
 dataloaders = {x: torch.utils.data.DataLoader(pair_datasets[x], batch_size=batch_size, shuffle=True, num_workers=4) for x in ['train', 'test']}
 dataset_sizes = {x: len(pair_datasets[x]) for x in ['train', 'test']}
-class_names = pair_datasets['train'].classes
 file_name = __file__.split('/')[-1].split('.')[0]
 
 #Create model and initialize/freeze weights
