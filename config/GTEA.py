@@ -60,6 +60,7 @@ rgb_sim = {
     'num_epochs': 500,
     'data_dir': '../../dataset/',
     'features_2048x10x10_dir': 'rgb_2048x10x10_features/',
+    'weights_dir': '../../weights/'
     'num_classes': 2,
     'batch_size': 128,
     'train_csv': 'train_sim.csv',
