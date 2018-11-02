@@ -43,6 +43,7 @@ rgb_lstm = {
     'num_epochs': 500,
     'data_dir': '../../dataset/',
     'features_2048_dir': 'rgb_2048_features/',
+    'lstm_512_features': 'lstm_512_features/',
     'png_dir': 'pngs/',
     'num_classes': 11,
     'batch_size': 128,
@@ -53,6 +54,8 @@ rgb_lstm = {
 }
 
 rgb_sim = {
+    'mean': [0.485, 0.456, 0.406],
+    'std': [0.229, 0.224, 0.225],
     'lr': 0.001,
     'momentum': 0.9,
     'step_size': 20,
@@ -60,13 +63,33 @@ rgb_sim = {
     'num_epochs': 500,
     'data_dir': '../../dataset/',
     'features_2048x10x10_dir': 'rgb_2048x10x10_features/',
+    'features_2048_dir': 'rgb_2048_features/',
     'weights_dir': '../../weights/',
     'num_classes': 2,
     'batch_size': 128,
+    'png_dir': 'pngs/',
     'train_csv': 'train_sim.csv',
     'test_csv': 'test_sim.csv',
-    'class_map': {'sim':0, 'dsim':1}
-}
+    'test_sliding_widow_csv': 'test_sim_sliding_window.csv',
+    'class_map': {'sim':0, 'dsim':1},
+    'data_transforms' : {
+     'train': transforms.Compose([
+          transforms.CenterCrop([280, 450]),
+          transforms.RandomCrop(224),
+          transforms.Resize(300),
+          transforms.ToTensor(),
+          transforms.Normalize([0.485, 0.456, 0.406],[0.229, 0.224, 0.225])
+
+      ]),
+      'test': transforms.Compose([
+          transforms.CenterCrop(224),
+          transforms.Resize(300),
+          transforms.ToTensor(),
+          transforms.Normalize([0.485, 0.456, 0.406],[0.229, 0.224, 0.225])
+      ]),
+     }
+   }
+
 
 flow = {'mean': [0.5, 0.5, 0.5],
  'std': [1, 1, 1],
